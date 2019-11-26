@@ -1,18 +1,86 @@
 ﻿namespace Sitecore.Support.ContentSearch.SolrProvider
 {
+    using Sitecore.ContentSearch;
     using Sitecore.ContentSearch.Diagnostics;
     using Sitecore.ContentSearch.SolrProvider;
     using Sitecore.Diagnostics;
     using Sitecore.StringExtensions;
     using SolrNet;
     using SolrNet.Exceptions;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Reflection;
     public static class SolrStatus
     {
+        /// <summary>
+        /// The lock object.
+        /// </summary>
+        private static object lockObject = new object();
+
+        /// <summary>
+        /// The list of indexes that failed to initialize due to some errors and should be initialized again.
+        /// </summary>
+        private static List<ISearchIndex> IndexesToInit { get; set; }
+
+        public static bool InitStatusOk { get; private set; }
+
         static SolrStatus()
         {
-            MethodInfo methodInfo = typeof(Sitecore.ContentSearch.SolrProvider.SolrStatus).GetProperty("InitStatusOk").GetSetMethod(true);
-            methodInfo.Invoke(null, new object[] {OkSolrStatus()});
+            InitStatusOk = OkSolrStatus();
+            IndexesToInit = new List<ISearchIndex>();
+        }
+
+        /// <summary>
+        /// Sets the index that failed to initialize due to some errors and should be initialized again. 
+        /// </summary>
+        /// <param name="solrIndex">The index.</param>
+        public static void SetIndexForInitialization(ISearchIndex solrIndex)
+        {
+            if (solrIndex != null)
+            {
+                lock (lockObject)
+                {
+                    if (!IndexesToInit.Contains(solrIndex))
+                    {
+                        IndexesToInit.Add(solrIndex);
+                    }
+                    else
+                    {
+                        CrawlingLog.Log.Warn("Index re-initialization list already contains '{0}' index. Skipping this operation to avoid duplicating the entry.".FormatWith(solrIndex.Name));
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Unsets the index that has been already initialized. 
+        /// </summary>
+        /// <param name="solrIndex">The index.</param>
+        public static void UnsetIndexForInitialization(ISearchIndex solrIndex)
+        {
+            lock (lockObject)
+            {
+                if (solrIndex != null && IndexesToInit.Contains(solrIndex))
+                {
+                    IndexesToInit.Remove(solrIndex);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the list of indexes that failed to initialize due to some errors and should be initialized again. 
+        /// </summary>
+        /// <returns>The list of <see cref="SolrSearchIndex"/> instances.</returns>
+        public static List<ISearchIndex> GetIndexesForInitialization()
+        {
+            List<ISearchIndex> indexes;
+
+            lock (lockObject)
+            {
+                indexes = IndexesToInit.ToList();
+            }
+
+            return indexes;
         }
 
         public static bool OkSolrStatus()
